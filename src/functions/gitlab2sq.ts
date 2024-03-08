@@ -1,12 +1,15 @@
 import {ReportFormatForGitLabSAST} from "../types/gitlab/sast-report-format";
-import {SonarQubeGenericIssueImportFormat} from "../types/sonarqube/generic-issue-report";
+import {
+  SonarQubeGenericIssueImportFormat, SonarQubeIssue,
+  SonarQubeRule
+} from "../types/sonarqube/generic-issue-report";
 
 const severity_map: Record<
-  Exclude<
-    ReportFormatForGitLabSAST["vulnerabilities"][0]["severity"],
-    undefined
-  >,
-  SonarQubeGenericIssueImportFormat["issues"][0]["severity"]
+    Exclude<
+        ReportFormatForGitLabSAST["vulnerabilities"][0]["severity"],
+        undefined
+    >,
+    SonarQubeGenericIssueImportFormat["issues"][0]["severity"]
 > = {
   Info: "INFO",
   Unknown: "INFO",
@@ -16,25 +19,49 @@ const severity_map: Record<
   Critical: "CRITICAL",
 };
 
-export default ({vulnerabilities}: ReportFormatForGitLabSAST) =>
-  ({
-    issues: vulnerabilities.map(
-      ({scanner, identifiers, message, location, severity}) =>
-        Object.assign(
-          {
-            type: "VULNERABILITY",
-            engineId: scanner?.id,
-            ruleId: identifiers[0].name,
-            primaryLocation: {
-              message,
-              filePath: location.file,
-              textRange: {
-                startLine: location.start_line,
-                endLine: location.end_line,
+export default (report: ReportFormatForGitLabSAST) => {
+  const rules = [...new Map(report.vulnerabilities.map(
+      ({identifiers, description, name}) =>
+          Object.assign(
+              {
+                id: identifiers[0].name,
+                name,
+                description,
+                engineId: report.scan.scanner.id,
+                cleanCodeAttribute: 'CONVENTIONAL',
+                impacts: [
+                  {
+                    softwareQuality: 'MAINTAINABILITY',
+                    severity: 'MEDIUM'
+                  }
+                ]
+              }
+          )
+  ).map(item =>
+      [item["id"], item])).values()] as SonarQubeRule[];
+
+  const issues = report.vulnerabilities.map(
+      ({identifiers, description, name, location, severity}) =>
+          Object.assign(
+              {
+                type: "VULNERABILITY",
+                engineId: report.scan.scanner.id,
+                ruleId: identifiers[0].name,
+                primaryLocation: {
+                  message: name ?? description ?? "N/A",
+                  filePath: location.file,
+                  textRange: {
+                    startLine: location.start_line,
+                    endLine: location.end_line,
+                  },
+                },
               },
-            },
-          },
-          severity && {severity: severity_map[severity]}
-        )
-    ),
-  } as SonarQubeGenericIssueImportFormat);
+              severity && {severity: severity_map[severity]} as SonarQubeIssue
+          )
+  )
+  return (
+      {
+        rules,
+        issues,
+      } as SonarQubeGenericIssueImportFormat);
+};
